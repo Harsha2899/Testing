@@ -1,6 +1,6 @@
 let questions = [];
 let currentQuestionIndex = 0;
-let userEmail = "https://script.google.com/macros/s/AKfycbxF3gj5cAnOhN7tJcZrlbiPFb1mkp0Jgzvfvwm1_KcJvvXv40Y3mIf28IJ5cHIcNiFe/exec";
+let userEmail = "";
 let usedHint = false;
 let followUpAnswered = new Set();
 let answeredQuestions = new Set(); // Stores indices of answered questions
@@ -10,7 +10,7 @@ let selectedSectionQuestions = []; // Holds questions for the currently selected
 let currentSessionId = ""; // To store a unique ID for the current quiz session
 
 // Make sure this URL is correct and active for your Google Apps Script
-const googleAppsScriptURL = "";
+const googleAppsScriptURL = "https://script.google.com/macros/s/AKfycbxF3gj5cAnOhN7tJcZrlbiPFb1mkp0Jgzvfvwm1_KcJvvXv40Y3mIf28IJ5cHIcNiFe/exec";
 
 document.addEventListener("DOMContentLoaded", () => {
   fetch("questions.json")
