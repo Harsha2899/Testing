@@ -14,8 +14,11 @@
 
   <div id="emailScreen" style="display: none;">
     <h2>Enter Your Gmail to Begin</h2>
-    <input type="email" id="emailInput" placeholder="Enter your Gmail" required />
-    <button id="startButton">Start Quiz</button>
+    <form id="emailForm">
+      <label for="emailInput">Your Gmail Address:</label>
+      <input type="email" id="emailInput" placeholder="Enter your Gmail" required />
+      <button type="submit" id="startButton">Start Quiz</button>
+    </form>
   </div>
 
   <div id="questionScreen" style="display: none;">
