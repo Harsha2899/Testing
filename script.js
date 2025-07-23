@@ -1,476 +1,243 @@
-let questions = [];
-let currentQuestionIndex = 0;
-let userEmail = "";
-let usedHint = false;
-let followUpAnswered = new Set();
-let answeredQuestions = new Set(); // Stores indices of answered questions
-let correctCount = 0;
-let incorrectCount = 0;
-let selectedSectionQuestions = []; // Holds questions for the currently selected section
-let currentSessionId = ""; // To store a unique ID for the current quiz session
-
-// Make sure this URL is correct and active for your Google Apps Script
 const googleAppsScriptURL = "https://script.google.com/macros/s/AKfycbwMG4v2zDpvFYilhUIPDMN3Gd09CJxJf5gk6tzu0rJpOLtoRfcTubT1pAOXVxmNbsRR/exec";
 
+let currentQuestionIndex = 0;
+let questions = [];
+let studentEmail = "";
+let usedHint = false;
+let followUpAnswered = false;
+let correctAnswers = 0;
+let incorrectAnswers = 0;
+let quizStartTime = null;
+
 document.addEventListener("DOMContentLoaded", () => {
+  document.getElementById("exerciseSelection").addEventListener("change", showEmailInput);
+  document.getElementById("emailForm").addEventListener("submit", startQuiz);
+  document.getElementById("submitAnswer").addEventListener("click", handleSubmitAnswer);
+  document.getElementById("skipQuestion").addEventListener("click", markQuestionAsSkipped);
+  document.getElementById("showHint").addEventListener("click", showHint);
+  document.getElementById("prevQuestion").addEventListener("click", goToPreviousQuestion);
+});
+
+function showEmailInput() {
+  const selected = document.getElementById("exerciseSelection").value;
+  if (selected) {
+    document.getElementById("homepage").style.display = "none";
+    document.getElementById("emailScreen").style.display = "block";
+  }
+}
+
+function startQuiz(e) {
+  e.preventDefault();
+  studentEmail = document.getElementById("studentEmail").value.trim();
+  if (!studentEmail.endsWith("@gmail.com")) {
+    alert("Please enter a valid Gmail address.");
+    return;
+  }
+  const selected = document.getElementById("exerciseSelection").value;
   fetch("questions.json")
     .then(res => res.json())
     .then(data => {
-      questions = data; // Load all questions initially
-      showSectionList();
-    })
-    .catch(err => console.error("Failed to load questions.json:", err));
-
-  document.getElementById("startButton").addEventListener("click", () => {
-    userEmail = document.getElementById("emailInput").value.trim();
-    if (userEmail && userEmail.includes("@")) {
-      currentSessionId = Date.now().toString(); // Generate a unique session ID (e.g., timestamp)
-      
-      questions = selectedSectionQuestions;
-      if (questions.length > 0) {
-        showQuestion(currentQuestionIndex);
-      } else {
-        alert("No questions found for this section.");
-        document.getElementById("emailScreen").style.display = "none";
-        document.getElementById("home").style.display = "block";
-      }
-    } else {
-      alert("Please enter a valid Gmail address.");
-    }
-  });
-
-  document.getElementById("showHint").addEventListener("click", () => {
-    if (!answeredQuestions.has(currentQuestionIndex)) {
-      const q = questions[currentQuestionIndex];
-      document.getElementById("hintBox").innerText = q.hint || "";
-      document.getElementById("hintBox").classList.add("hint-box");
-      usedHint = true;
-    }
-  });
-
-  document.getElementById("prevButton").addEventListener("click", () => {
-    if (!answeredQuestions.has(currentQuestionIndex) && currentQuestionIndex > 0) {
-        markQuestionAsSkipped(currentQuestionIndex);
-    }
-    if (currentQuestionIndex > 0) {
-      showQuestion(--currentQuestionIndex);
-    }
-  });
-
-  document.getElementById("nextButton").addEventListener("click", () => {
-    if (!answeredQuestions.has(currentQuestionIndex)) {
-        markQuestionAsSkipped(currentQuestionIndex);
-    }
-
-    if (currentQuestionIndex < questions.length - 1) {
-      showQuestion(++currentQuestionIndex);
-    } else {
-      showScore();
-    }
-  });
-});
-
-function showSectionList() {
-  const sectionContainer = document.getElementById("sectionList");
-  const uniqueSections = [...new Set(questions.map(q => q.section))].sort((a, b) => a - b);
-
-  const sectionNames = {
-    1: "Subject-Verb Agreement",
-    2: "Complete Sentences",
-    3: "Sentence Fragments",
-    4: "What is a Run-on Sentence",
-    5: "How to fix Run-on Sentence",
-    6: "Pronoun Agreement"
-  };
-
-  sectionContainer.innerHTML = "";
-  uniqueSections.forEach(section => {
-    const btn = document.createElement("button");
-    btn.className = "section-button";
-    btn.innerText = sectionNames[section] || `Section ${section}`;
-    btn.onclick = () => {
-      selectedSectionQuestions = questions.filter(q => q.section === section);
+      questions = data[selected];
       currentQuestionIndex = 0;
-      answeredQuestions.clear();
-      correctCount = 0;
-      incorrectCount = 0;
-      followUpAnswered.clear();
-      
-      selectedSectionQuestions.forEach(q => {
-        delete q.userSelectedAnswer;
-        delete q.wasCorrectLastTime;
-        delete q.lastFeedbackText;
-        delete q.followUpNeeded;
-        delete q.followUpAnsweredThisTime;
-        delete q.lastFollowUpFeedbackText;
-        delete q.lastFollowUpAnswerWasCorrect;
-        delete q.userSelectedFollowUpAnswer;
-        q.startTime = null; 
-        q.endTime = null;
-      });
-
-      document.getElementById("home").style.display = "none";
-      document.getElementById("emailScreen").style.display = "block";
-    };
-    sectionContainer.appendChild(btn);
-  });
-}
-
-function showQuestion(index) {
-  const q = questions[index];
-  usedHint = false;
-  q.startTime = new Date();
-
-  document.getElementById("emailScreen").style.display = "none";
-  document.getElementById("scoreScreen").style.display = "none";
-  document.getElementById("questionScreen").style.display = "block";
-
-  document.getElementById("questionNumber").innerText = `Question ${index + 1} of ${questions.length}`;
-  document.getElementById("questionText").innerText = q.question;
-
-  const hintBox = document.getElementById("hintBox");
-  hintBox.innerText = "";
-  hintBox.classList.remove("hint-box");
-
-  const feedbackBox = document.getElementById("feedback");
-  feedbackBox.innerText = "";
-  feedbackBox.classList.remove("correct", "incorrect");
-
-  const followUpContainer = document.getElementById("followUpContainer");
-  followUpContainer.innerHTML = "";
-  followUpContainer.style.display = "none";
-
-  const optionsBox = document.getElementById("optionsBox");
-  optionsBox.innerHTML = "";
-  q.options.forEach((opt, i) => {
-    const label = document.createElement("label");
-    const radioInput = document.createElement("input");
-    radioInput.type = "radio";
-    radioInput.name = "option";
-    radioInput.value = String.fromCharCode(65 + i);
-
-    radioInput.addEventListener("click", () => handleSubmitAnswer(radioInput.value));
-
-    label.appendChild(radioInput);
-    label.append(` ${opt}`);
-    optionsBox.appendChild(label);
-  });
-
-  const isQuestionAnswered = answeredQuestions.has(index);
-  document.getElementById("showHint").disabled = isQuestionAnswered;
-  document.getElementById("prevButton").disabled = index === 0;
-  document.getElementById("nextButton").disabled = false;
-
-  if (isQuestionAnswered) {
-    document.querySelectorAll("input[name='option']").forEach(radio => {
-      if (radio.value === q.userSelectedAnswer) {
-        radio.checked = true;
-      }
-      radio.disabled = true;
+      quizStartTime = new Date();
+      document.getElementById("emailScreen").style.display = "none";
+      document.getElementById("quizScreen").style.display = "block";
+      renderQuestion();
     });
-
-    feedbackBox.innerText = q.lastFeedbackText;
-    feedbackBox.classList.add(q.wasCorrectLastTime ? "correct" : "incorrect");
-
-    if (q.followUpNeeded) {
-        showFollowUp(q, true);
-    }
-  }
 }
 
-function handleSubmitAnswer(selectedValue) {
-  const q = questions[currentQuestionIndex];
-  
-  if (answeredQuestions.has(currentQuestionIndex)) {
+function renderQuestion() {
+  usedHint = false;
+  followUpAnswered = false;
+  const questionObj = questions[currentQuestionIndex];
+  document.getElementById("questionNumber").textContent = `Question ${currentQuestionIndex + 1} of ${questions.length}`;
+  document.getElementById("questionText").textContent = questionObj.question;
+  document.getElementById("hintText").style.display = "none";
+  document.getElementById("hintText").textContent = questionObj.hint;
+  const optionsDiv = document.getElementById("options");
+  optionsDiv.innerHTML = "";
+  questionObj.options.forEach(opt => {
+    const label = document.createElement("label");
+    label.innerHTML = `<input type="radio" name="option" value="${opt}"> ${opt}`;
+    optionsDiv.appendChild(label);
+    optionsDiv.appendChild(document.createElement("br"));
+  });
+}
+
+function handleSubmitAnswer() {
+  const selectedOption = document.querySelector('input[name="option"]:checked');
+  if (!selectedOption) {
+    alert("Please select an answer.");
     return;
   }
 
-  q.endTime = new Date();
-  const timeSpent = (q.endTime - q.startTime) / 1000;
+  const questionObj = questions[currentQuestionIndex];
+  const studentAnswer = selectedOption.value;
+  const isCorrect = studentAnswer === questionObj.answer;
 
-  const wasCorrect = selectedValue === q.correctAnswer;
-  const feedbackBox = document.getElementById("feedback");
+  const result = isCorrect ? "Correct" : "Incorrect";
+  if (isCorrect) correctAnswers++;
+  else incorrectAnswers++;
 
-  q.userSelectedAnswer = selectedValue;
-  q.wasCorrectLastTime = wasCorrect;
+  const timeSpent = (new Date() - quizStartTime) / 1000;
+  const feedback = isCorrect ? "Good job!" : `Correct answer is ${questionObj.answer}`;
 
-  let feedbackText = '';
-  if (q.feedback) { // Check for old format (q1-q55)
-    feedbackText = usedHint ? (wasCorrect ? q.feedback.correct_hint : q.feedback.incorrect_hint) : (wasCorrect ? q.feedback.correct_no_hint : q.feedback.incorrect_no_hint);
-  } else { // Handle new format (q56+)
-    const selectedOption = selectedValue.toLowerCase();
-    if (wasCorrect) {
-      feedbackText = `✅ Correct! ${q.explanationCorrect || ''}`;
-    } else {
-      feedbackText = `❌ Incorrect. ${q[`explanationIncorrect${selectedValue}`] || ''}`;
-    }
-  }
-
-  q.lastFeedbackText = feedbackText;
-  answeredQuestions.add(currentQuestionIndex);
-
-  feedbackBox.innerText = q.lastFeedbackText;
-  if (wasCorrect) {
-    feedbackBox.classList.add("correct");
-    feedbackBox.classList.remove("incorrect");
-    correctCount++;
-    // FIX: Check for both old and new follow-up fields
-    if (q.followUpQuestion || q.followUpCorrect) {
-        q.followUpNeeded = true;
-        if (!followUpAnswered.has(q.id)) {
-            showFollowUp(q);
-        }
-    }
-  } else {
-    feedbackBox.classList.add("incorrect");
-    feedbackBox.classList.remove("correct");
-    incorrectCount++;
-  }
-
-  document.querySelectorAll("input[name='option']").forEach(radio => radio.disabled = true);
-  document.getElementById("showHint").disabled = true;
-
-  logAnswer(
-    q.section,
-    currentSessionId,
-    `${currentQuestionIndex + 1}/${questions.length}`,
-    usedHint ? "Yes" : "No",
-    selectedValue,
-    wasCorrect ? "Correct" : "Incorrect",
-    timeSpent.toFixed(2),
-    q.lastFeedbackText,
-    "N/A",
-    "N/A",
-    q.id,
-    q.question
-  );
-}
-
-function markQuestionAsSkipped(index) {
-    const q = questions[index];
-    if (!answeredQuestions.has(index)) {
-        q.endTime = new Date();
-        const timeSpent = (q.endTime - (q.startTime || new Date())) / 1000;
-
-        answeredQuestions.add(index);
-        incorrectCount++;
-        
-        q.userSelectedAnswer = "N/A (Skipped)";
-        q.wasCorrectLastTime = false;
-        q.lastFeedbackText = "❌ Question skipped.";
-        
-        logAnswer(
-            q.section,
-            currentSessionId,
-            `${index + 1}/${questions.length}`,
-            usedHint ? "Yes" : "No",
-            "N/A (Skipped)",
-            "Skipped",
-            timeSpent.toFixed(2),
-            q.lastFeedbackText,
-            "N/A",
-            "N/A",
-            q.id,
-            q.question
-        );
-    }
-}
-
-function showFollowUp(q, isRevisit = false) {
-  const followUp = document.getElementById("followUpContainer");
-  // FIX: Dynamically choose the follow-up question text based on which field exists
-  const followUpQuestionText = q.followUpCorrect || q.followUpQuestion;
-  followUp.innerHTML = `<p>${followUpQuestionText}</p>`;
-
-  // FIX: Dynamically choose the follow-up options based on which field exists
-  const followUpOptions = q.followUpCorrectOptions || q.followUpOptions;
-
-  followUpOptions.forEach((opt, i) => {
-    const label = document.createElement("label");
-    const radioInput = document.createElement("input");
-    radioInput.type = "radio";
-    radioInput.name = "followUp";
-    radioInput.value = String.fromCharCode(65 + i);
-
-    radioInput.addEventListener("click", () => handleSubmitFollowUp(radioInput.value, q, followUp));
-
-    label.appendChild(radioInput);
-    label.append(` ${opt}`);
-    followUp.appendChild(label);
-
-    if (isRevisit && q.followUpAnsweredThisTime) {
-        if (radioInput.value === q.userSelectedFollowUpAnswer) {
-            radioInput.checked = true;
-        }
-        radioInput.disabled = true;
-    }
+  logAnswer({
+    questionId: questionObj.id,
+    questionText: questionObj.question,
+    studentAnswer,
+    correctAnswer: questionObj.answer,
+    usedHint,
+    followUpAnswer: "",
+    followUpResult: "",
+    timeSpent,
+    result,
+    feedback,
+    section: questionObj.section || "",
+    extra: ""
   });
 
-  followUp.style.display = "block";
+  // If correct and has followUp question, show it next (once)
+  if (isCorrect && questionObj.followUp && !followUpAnswered) {
+    followUpAnswered = true;
+    showFollowUp(questionObj);
+    return;
+  }
 
-  if (isRevisit && q.followUpAnsweredThisTime) {
-        const feedbackParagraph = document.createElement("p");
-        feedbackParagraph.innerText = q.lastFollowUpFeedbackText;
-        feedbackParagraph.classList.add(q.lastFollowUpAnswerWasCorrect ? "correct" : "incorrect");
-        followUp.appendChild(feedbackParagraph);
-        followUp.querySelectorAll("input[name='followUp']").forEach(radio => radio.disabled = true);
+  goToNextQuestion();
+}
+
+function showFollowUp(questionObj) {
+  document.getElementById("questionText").textContent = questionObj.followUp.question;
+  document.getElementById("hintText").style.display = "none";
+  document.getElementById("hintText").textContent = questionObj.followUp.hint;
+  const optionsDiv = document.getElementById("options");
+  optionsDiv.innerHTML = "";
+  questionObj.followUp.options.forEach(opt => {
+    const label = document.createElement("label");
+    label.innerHTML = `<input type="radio" name="option" value="${opt}"> ${opt}`;
+    optionsDiv.appendChild(label);
+    optionsDiv.appendChild(document.createElement("br"));
+  });
+
+  document.getElementById("submitAnswer").onclick = () => {
+    const selected = document.querySelector('input[name="option"]:checked');
+    if (!selected) {
+      alert("Please select an answer.");
+      return;
+    }
+
+    const studentAnswer = selected.value;
+    const isCorrect = studentAnswer === questionObj.followUp.answer;
+    const timeSpent = (new Date() - quizStartTime) / 1000;
+    const feedback = isCorrect ? "Good job!" : `Correct answer is ${questionObj.followUp.answer}`;
+    if (isCorrect) correctAnswers++;
+    else incorrectAnswers++;
+
+    logAnswer({
+      questionId: `${questionObj.id}-followup`,
+      questionText: questionObj.followUp.question,
+      studentAnswer,
+      correctAnswer: questionObj.followUp.answer,
+      usedHint,
+      followUpAnswer: "",
+      followUpResult: "",
+      timeSpent,
+      result: isCorrect ? "Correct" : "Incorrect",
+      feedback,
+      section: questionObj.section || "",
+      extra: "Follow-up"
+    });
+
+    goToNextQuestion();
+    document.getElementById("submitAnswer").onclick = handleSubmitAnswer;
+  };
+}
+
+function markQuestionAsSkipped() {
+  const questionObj = questions[currentQuestionIndex];
+  const timeSpent = (new Date() - quizStartTime) / 1000;
+  logAnswer({
+    questionId: questionObj.id,
+    questionText: questionObj.question,
+    studentAnswer: "",
+    correctAnswer: questionObj.answer,
+    usedHint,
+    followUpAnswer: "",
+    followUpResult: "",
+    timeSpent,
+    result: "Skipped",
+    feedback: "Skipped",
+    section: questionObj.section || "",
+    extra: ""
+  });
+  goToNextQuestion();
+}
+
+function showHint() {
+  usedHint = true;
+  document.getElementById("hintText").style.display = "block";
+}
+
+function goToNextQuestion() {
+  currentQuestionIndex++;
+  if (currentQuestionIndex >= questions.length) {
+    showScore();
+  } else {
+    renderQuestion();
   }
 }
 
-function handleSubmitFollowUp(selectedValue, q, followUpContainer) {
-    if (q.followUpAnsweredThisTime) {
-        return;
-    }
-
-    // FIX: Dynamically choose the correct follow-up answer field
-    const correct = selectedValue === (q.followUpCorrectAnswer || q.followUpAnswer);
-    const feedbackText = correct ? "✅ Correct!" : "❌ Incorrect." ;
-    const feedbackParagraph = document.createElement("p");
-    feedbackParagraph.innerText = feedbackText;
-    feedbackParagraph.classList.add(correct ? "correct" : "incorrect");
-    followUpContainer.appendChild(feedbackParagraph);
-
-    followUpAnswered.add(q.id);
-
-    q.followUpAnsweredThisTime = true;
-    q.lastFollowUpFeedbackText = feedbackText;
-    q.lastFollowUpAnswerWasCorrect = correct;
-    q.userSelectedFollowUpAnswer = selectedValue;
-
-    followUpContainer.querySelectorAll("input[name='followUp']").forEach(radio => radio.disabled = true);
-
-    logAnswer(
-        q.section,
-        currentSessionId,
-        `${currentQuestionIndex + 1}/${questions.length} (Follow-up)`,
-        "N/A",
-        selectedValue,
-        correct ? "Correct" : "Incorrect",
-        "N/A",
-        feedbackText,
-        selectedValue,
-        "N/A",
-        `${q.id}_followup`,
-        // FIX: Use the correct follow-up question text
-        q.followUpCorrect || q.followUpQuestion 
-    );
+function goToPreviousQuestion() {
+  if (currentQuestionIndex > 0) {
+    currentQuestionIndex--;
+    renderQuestion();
+  }
 }
 
-function logAnswer(
-    section,
-    sessionId,
-    questionNumberDisplay,
-    usedHintStatus,
-    answerGiven,
-    correctStatus,
-    timeSpent,
-    feedbackText,
-    followupAnswerValue,
-    overallScore,
-    questionIdInternal,
-    questionTextContent
-) {
+function showScore() {
+  document.getElementById("quizScreen").style.display = "none";
+  document.getElementById("scoreScreen").style.display = "block";
+
+  const total = questions.length;
+  const finalScore = Math.round((correctAnswers / total) * 100);
+  document.getElementById("finalScore").textContent = `Final Score: ${finalScore}%`;
+  document.getElementById("correctCount").textContent = `Correct: ${correctAnswers}`;
+  document.getElementById("incorrectCount").textContent = `Incorrect: ${incorrectAnswers}`;
+
+  logFinalScore(finalScore);
+}
+
+function logAnswer(data) {
   const payload = {
-    action: "logQuestion",
-    email: userEmail,
-    sessionId: sessionId,
-    questionNumberDisplay: questionNumberDisplay,
-    questionId: questionIdInternal,
-    questionText: questionTextContent,
-    usedHint: usedHintStatus,
-    answerGiven: answerGiven,
-    correct: correctStatus,
-    timeSpent: timeSpent,
-    feedbackShown: feedbackText,
-    followupAnswer: followupAnswerValue,
-    overallScore: overallScore,
-    timestamp: new Date().toISOString()
+    studentEmail,
+    ...data
   };
 
   fetch(googleAppsScriptURL, {
     method: "POST",
-    body: JSON.stringify(payload),
-    headers: { "Content-Type": "application/json" }
-  })
-  .then(response => response.json())
-  .then(data => {
-      if (data.status === "success") {
-          console.log("Log successful:", data.message);
-      } else {
-          console.error("Log failed:", data.message);
-      }
-  })
-  .catch(err => console.error("Log failed (network error or script issue):", err));
+    mode: "cors",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload)
+  }).catch(err => {
+    console.error("Log failed (network error or script issue):", err);
+  });
 }
 
-function logFinalScore(finalCorrectCount, finalIncorrectCount, totalQuestions, percentage) {
-    const payload = {
-        action: "logFinalScore",
-        email: userEmail,
-        sessionId: currentSessionId,
-        totalQuestions: totalQuestions,
-        correctCount: finalCorrectCount,
-        incorrectCount: finalIncorrectCount,
-        percentageScore: percentage,
-        timestamp: new Date().toISOString()
-    };
-
-    fetch(googleAppsScriptURL, {
-        method: "POST",
-        body: JSON.stringify(payload),
-        headers: { "Content-Type": "application/json" }
-    })
-    .then(response => response.json())
-    .then(data => {
-        if (data.status === "success") {
-            console.log("Final score logged successfully:", data.message);
-        } else {
-            console.error("Final score log failed:", data.message);
-        }
-    })
-    .catch(err => console.error("Final score log failed (network error or script issue):", err));
-}
-
-function showScore() {
-  document.getElementById("questionScreen").style.display = "none";
-  const scoreScreen = document.getElementById("scoreScreen");
-  const finalScore = document.getElementById("finalScore");
-  
-  const totalQuestions = questions.length;
-  const percentage = totalQuestions > 0 ? ((correctCount / totalQuestions) * 100).toFixed(2) : 0;
-
-  finalScore.innerHTML = `
-    <h2>Quiz Completed!</h2>
-    <p>Correct Answers: ${correctCount}</p>
-    <p>Incorrect Answers: ${incorrectCount}</p>
-    <p>Score: ${percentage}%</p>
-    <button id="restartQuizButton">Take Another Quiz</button>
-  `;
-  scoreScreen.style.display = "block";
-
-  logFinalScore(correctCount, incorrectCount, totalQuestions, percentage);
-
-  document.getElementById("restartQuizButton").addEventListener("click", () => {
-    currentQuestionIndex = 0;
-    answeredQuestions.clear();
-    correctCount = 0;
-    incorrectCount = 0;
-    usedHint = false;
-    followUpAnswered.clear();
-    questions = [];
-    selectedSectionQuestions = [];
-    currentSessionId = "";
-
-    document.getElementById("scoreScreen").style.display = "none";
-    document.getElementById("emailInput").value = "";
-    document.getElementById("emailScreen").style.display = "none";
-    document.getElementById("home").style.display = "block";
-    fetch("questions.json")
-      .then(res => res.json())
-      .then(data => {
-        questions = data;
-        showSectionList();
-      })
-      .catch(err => console.error("Failed to re-load questions.json:", err));
+function logFinalScore(score) {
+  const timeSpent = (new Date() - quizStartTime) / 1000;
+  logAnswer({
+    questionId: "FINAL_SCORE",
+    questionText: "Final score summary",
+    studentAnswer: `${score}%`,
+    correctAnswer: "",
+    usedHint: "",
+    followUpAnswer: "",
+    followUpResult: "",
+    timeSpent,
+    result: `Final Score: ${score}%`,
+    feedback: `Correct: ${correctAnswers}, Incorrect: ${incorrectAnswers}`,
+    section: "",
+    extra: ""
   });
 }
